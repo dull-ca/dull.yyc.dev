@@ -1,0 +1,26 @@
+---
+import classifiedStamp from "@/assets/classified-stamp.svg";
+import Layout from "@/layouts/Layout.astro";
+---
+
+<Layout title="Department of Unnecessary Labour">
+	<main class="flex min-h-screen items-center justify-center px-4">
+		<div class="mx-auto max-w-lg text-center">
+			<div class="relative p-8">
+				<h1 class="font-heading text-4xl font-bold tracking-tight text-foreground">
+					Department of Unnecessary Labour
+				</h1>
+				<p class="mt-4 font-typewriter text-xl font-semibold uppercase tracking-wide text-foreground">
+					we do this because we want to, not because we have to. you're welcome.
+				</p>
+				<p class="mt-6 font-typewriter text-sm italic text-muted-foreground">&mdash; dull</p>
+				<div
+					class="pointer-events-none absolute inset-0 -rotate-12 bg-contain bg-center bg-no-repeat opacity-75"
+					style={`background-image: url(${classifiedStamp.src});`}
+					aria-hidden="true"
+				>
+				</div>
+			</div>
+		</div>
+	</main>
+</Layout>

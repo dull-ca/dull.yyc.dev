@@ -1,0 +1,36 @@
+# === Dependencies ===
+node_modules/
+
+# === Build ===
+dist/
+
+# === Astro ===
+.astro/
+
+# === Devenv ===
+.devenv/
+.devenv.flake.nix
+devenv.lock
+
+# === Environment ===
+.env
+.env.*
+!.env.example
+
+# === AI / Tooling ===
+.claude/
+
+# === Editors ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Logs ===
+*.log
+npm-debug.log*

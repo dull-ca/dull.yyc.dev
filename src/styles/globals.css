@@ -123,4 +123,8 @@
 	body {
 		@apply bg-background text-foreground;
 	}
+	::selection {
+		background: oklch(0.65 0.2 25);
+		color: white;
+	}
 }

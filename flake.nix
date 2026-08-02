@@ -25,6 +25,64 @@
       let
         pkgs = import nixpkgs { inherit system; };
         nginx = dull-nix.packages.${system}.nginx-static-no-tls;
+
+        # NOTE: `dist/` is a gitignored build artifact, so a pure flake
+        # evaluation -- which only sees committed source -- can't read it.
+        # Reading `DULL_SITE_DIST` is what forces `nix build --impure`. When
+        # neither resolves, `siteDist` is null and `packages` (below) omits
+        # `container` via `optionalAttrs` instead of failing evaluation --
+        # that's what keeps a pure `nix flake check` green with no dist/.
+        siteDist =
+          let env = builtins.getEnv "DULL_SITE_DIST";
+          in
+          if env != "" then /. + env
+          else if builtins.pathExists ./dist then ./dist
+          else null;
+
+        # bun builds the site; nix only packages the result. Astro pulls in
+        # ~137 platform-split native packages (sharp/libvips, esbuild,
+        # rollup) that `buildNpmPackage` can't reproduce -- the same split
+        # golem's flake.nix makes, for the same reason.
+        mkContainer = dist: pkgs.dockerTools.buildLayeredImage {
+          name = "dull.yyc.dev";
+          tag = "latest";
+          contents = [
+            nginx
+            # Supplies /etc/passwd and /etc/group so `nobody` resolves --
+            # the image is built from an empty base with no distro files.
+            pkgs.dockerTools.fakeNss
+            (pkgs.runCommand "dull-site-root" { } ''
+              mkdir -p $out/var/www/html $out/etc/nginx
+              cp -r ${dist}/. $out/var/www/html/
+              cp ${./deploy/nginx.conf} $out/etc/nginx/nginx.conf
+              cp ${nginx}/conf/mime.types $out/etc/nginx/mime.types
+            '')
+          ];
+          # NOTE: the world-writable /tmp nginx needs (for its pid and
+          # client-body temp files, running as `nobody`) can't be produced by
+          # a `chmod 1777` inside the `runCommand` above: Nix canonicalizes
+          # every store output's permissions after the build (dirs ->
+          # 0555, special bits stripped), so the chmod is silently reverted
+          # and nginx fails at startup with
+          # `mkdir() "/tmp/client_body" failed (13: Permission denied)`.
+          # `extraCommands` runs against the image layer instead of a store
+          # path, after that canonicalization, so it's the mechanism that
+          # actually sticks. Verified by hitting the failure above with the
+          # chmod in `runCommand`, then confirming the reverted `dr-xr-xr-x`
+          # mode with `stat` before moving it here.
+          extraCommands = ''
+            mkdir -p tmp
+            chmod 1777 tmp
+          '';
+          config = {
+            Entrypoint = [ "/bin/nginx" "-c" "/etc/nginx/nginx.conf" ];
+            # Unprivileged port: binding 80 as non-root needs
+            # CAP_NET_BIND_SERVICE, and the image sits behind a reverse
+            # proxy where a privileged port buys nothing.
+            ExposedPorts = { "8080/tcp" = { }; };
+            User = "nobody";
+          };
+        };
       in
       {
         checks = {
@@ -48,6 +106,10 @@
             ${nginx}/bin/nginx -t -c $PWD/etc/nginx/nginx.conf
             touch $out
           '';
+        };
+
+        packages = pkgs.lib.optionalAttrs (siteDist != null) {
+          container = mkContainer siteDist;
         };
       });
 }

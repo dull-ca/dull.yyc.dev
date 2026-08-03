@@ -842,15 +842,16 @@ jobs:
 ```
 
 > **Correction (2026-08-03).** This snippet originally had no `trap`, calling
-> `docker logs` and `docker rm -f` inline after the `curl` probes. GitHub
-> Actions runs `run:` blocks under `bash -eo pipefail`, so the moment the
-> container is unreachable the script aborts at the failing command — and both
-> of those lines sit *after* it. The result is the worst case for debugging: no
-> container logs (the only evidence of why nginx died) and a leaked container
-> on a self-hosted runner. `trap cleanup EXIT` fires on every exit path,
-> including the connection-refused one, which is exactly the case the smoke
-> test exists to catch. This trap is load-bearing, not tidiness — keep it, and
-> keep it identical in `release.yml`. The shipped workflows are authoritative.
+> `docker logs` and `docker rm -f` inline after the `curl` probes. With no
+> `shell:` key, GitHub Actions runs `run:` blocks under `bash -e {0}`, so the
+> moment the container is unreachable the script still aborts at the failing
+> command — and both of those lines sit *after* it. The result is the worst
+> case for debugging: no container logs (the only evidence of why nginx died)
+> and a leaked container on a self-hosted runner. `trap cleanup EXIT` fires on
+> every exit path, including the connection-refused one, which is exactly the
+> case the smoke test exists to catch. This trap is load-bearing, not
+> tidiness — keep it, and keep it identical in `release.yml`. The shipped
+> workflows are authoritative.
 
 - [ ] **Step 3: Verify the workflow is valid YAML**
 

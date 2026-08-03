@@ -53,11 +53,11 @@ jobs:
       # only validates the nginx config in a sandbox with no docker daemon;
       # this is the only step that runs the real artifact.
       #
-      # The `trap cleanup EXIT` is load-bearing, not tidiness: under GitHub
-      # Actions' `bash -eo pipefail` an unreachable container aborts the
-      # script at the first failing command, and without the trap neither
-      # `docker logs` (the only evidence of why nginx died) nor `docker rm -f`
-      # would ever run.
+      # The `trap cleanup EXIT` is load-bearing, not tidiness: with no `shell:`
+      # key GitHub Actions runs this under `bash -e {0}`, so an unreachable
+      # container still aborts the script at the first failing command, and
+      # without the trap neither `docker logs` (the only evidence of why
+      # nginx died) nor `docker rm -f` would ever run.
       - name: Smoke test the image
         run: |
           docker load < result

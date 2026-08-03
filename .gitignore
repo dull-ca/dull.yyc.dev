@@ -3,6 +3,8 @@ node_modules/
 
 # === Build ===
 dist/
+result
+result-*
 
 # === Astro ===
 .astro/

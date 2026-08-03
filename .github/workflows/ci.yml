@@ -1,0 +1,79 @@
+# Interim per golem ADR 0035: GitHub Actions is not the standing choice,
+# only used until the self-hosted golem-managed box exists. The actual gate
+# is `nix flake check`, which is machine-agnostic -- moving to that box
+# changes where this runs, not what it checks.
+#
+# NOTE: this builds and smoke-tests the image but never publishes it.
+# Publishing happens only on a `v*` tag, in release.yml -- don't add a push
+# step here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # This job only reads the repo -- it never publishes. Stated explicitly so
+    # the token stays read-only regardless of the repository or organisation
+    # default, which can otherwise grant write.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v15
+        with:
+          name: dull-ca
+          authToken: ${{ secrets.DULL_CA_CACHIX_PRIVATE_KEY }}
+
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run build
+
+      - run: nix flake check --print-build-logs
+
+      # Astro pulls in ~137 platform-split native packages (sharp/libvips,
+      # esbuild, rollup) that `buildNpmPackage` can't reproduce, so bun
+      # builds the site and nix only packages it. That makes `dist/` a
+      # gitignored artifact a pure flake evaluation can't see --
+      # DULL_SITE_DIST and --impure are what bridge it in here, which is why
+      # this step sits outside `nix flake check` above.
+      - name: Build container image
+        run: DULL_SITE_DIST=$PWD/dist nix build --impure .#container --print-build-logs
+
+      # `nix flake check` only validates the nginx config in a sandbox with
+      # no docker daemon -- it can't prove the assembled image serves. This
+      # is the only step that runs the real artifact; it's what would catch
+      # a regression like the earlier bug where nginx died at startup with a
+      # /tmp permission error.
+      - name: Smoke test the image
+        run: |
+          docker load < result
+
+          cleanup() {
+            docker logs dull-smoke || true
+            docker rm -f dull-smoke || true
+          }
+          trap cleanup EXIT
+
+          docker run -d --name dull-smoke -p 8099:8080 dull.yyc.dev:latest
+
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:8099/ && break
+            sleep 1
+          done
+          root=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/)
+          ctype=$(curl -s -o /dev/null -w '%{content_type}' http://127.0.0.1:8099/)
+          missing=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/definitely-not-here)
+          test "$root" = 200 || { echo "FAIL root: $root"; exit 1; }
+          test "$ctype" = "text/html" || { echo "FAIL ctype: $ctype"; exit 1; }
+          test "$missing" = 404 || { echo "FAIL 404: $missing"; exit 1; }
+          echo "smoke test passed"

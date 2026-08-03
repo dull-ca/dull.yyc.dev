@@ -16,6 +16,11 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # This job only reads the repo -- it never publishes. Stated explicitly so
+    # the token stays read-only regardless of the repository or organisation
+    # default, which can otherwise grant write.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 

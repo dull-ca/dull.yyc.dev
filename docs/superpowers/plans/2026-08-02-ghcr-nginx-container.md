@@ -652,15 +652,19 @@ Insert after the `nginx = ...` binding:
             # Supplies /etc/passwd and /etc/group so `nobody` resolves.
             pkgs.dockerTools.fakeNss
             (pkgs.runCommand "dull-site-root" { } ''
-              mkdir -p $out/var/www/html $out/etc/nginx $out/tmp
+              mkdir -p $out/var/www/html $out/etc/nginx
               cp -r ${dist}/. $out/var/www/html/
               cp ${./deploy/nginx.conf} $out/etc/nginx/nginx.conf
               cp ${nginx}/conf/mime.types $out/etc/nginx/mime.types
-              # nginx runs as `nobody` and must write its pid and client-body
-              # temp files here.
-              chmod 1777 $out/tmp
             '')
           ];
+          # nginx runs as `nobody` and must write its pid and client-body temp
+          # files under /tmp. This has to happen here, against the image layer
+          # — not in the runCommand above. See the correction note below.
+          extraCommands = ''
+            mkdir -p tmp
+            chmod 1777 tmp
+          '';
           config = {
             Entrypoint = [ "/bin/nginx" "-c" "/etc/nginx/nginx.conf" ];
             ExposedPorts = { "8080/tcp" = { }; };
@@ -668,6 +672,22 @@ Insert after the `nginx = ...` binding:
           };
         };
 ```
+
+> **Correction (2026-08-03).** This snippet originally created `$out/tmp` and
+> `chmod 1777`'d it **inside the `runCommand`**. That does not work, and the
+> failure is silent at build time. Nix canonicalizes every store output's
+> permissions after the build — directories become `0555` and special bits
+> including the sticky bit are stripped — so the `chmod` is reverted with no
+> error, `/tmp` lands in the image read-only, and nginx dies at startup with:
+>
+> ```
+> mkdir() "/tmp/client_body" failed (13: Permission denied)
+> ```
+>
+> `buildLayeredImage`'s `extraCommands` runs against the image layer rather
+> than a store path, after that canonicalization, so the mode sticks. The
+> shipped `flake.nix` is authoritative; where this plan and the code disagree,
+> the code is right.
 
 - [ ] **Step 2: Add the conditional `packages` output**
 
@@ -723,7 +743,7 @@ docker logs dull-smoke
 docker rm -f dull-smoke
 ```
 
-Expected: `root=200 type=text/html` and `missing=404`. Logs must show no permission errors. If nginx cannot write `/tmp/nginx.pid`, the `chmod 1777` in Step 1 did not take effect.
+Expected: `root=200 type=text/html` and `missing=404`. Logs must show no permission errors. If nginx cannot write `/tmp/nginx.pid`, the `extraCommands` block in Step 1 did not take effect — and if you moved that `chmod` back into the `runCommand`, see the correction note there for why it silently does nothing.
 
 - [ ] **Step 7: Commit**
 
@@ -799,7 +819,15 @@ jobs:
       - name: Smoke test the image
         run: |
           docker load < result
+
+          cleanup() {
+            docker logs dull-smoke || true
+            docker rm -f dull-smoke || true
+          }
+          trap cleanup EXIT
+
           docker run -d --name dull-smoke -p 8099:8080 dull.yyc.dev:latest
+
           for i in $(seq 1 30); do
             curl -sf -o /dev/null http://127.0.0.1:8099/ && break
             sleep 1
@@ -807,13 +835,22 @@ jobs:
           root=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/)
           ctype=$(curl -s -o /dev/null -w '%{content_type}' http://127.0.0.1:8099/)
           missing=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/definitely-not-here)
-          docker logs dull-smoke
-          docker rm -f dull-smoke
           test "$root" = 200 || { echo "FAIL root: $root"; exit 1; }
           test "$ctype" = "text/html" || { echo "FAIL ctype: $ctype"; exit 1; }
           test "$missing" = 404 || { echo "FAIL 404: $missing"; exit 1; }
           echo "smoke test passed"
 ```
+
+> **Correction (2026-08-03).** This snippet originally had no `trap`, calling
+> `docker logs` and `docker rm -f` inline after the `curl` probes. GitHub
+> Actions runs `run:` blocks under `bash -eo pipefail`, so the moment the
+> container is unreachable the script aborts at the failing command — and both
+> of those lines sit *after* it. The result is the worst case for debugging: no
+> container logs (the only evidence of why nginx died) and a leaked container
+> on a self-hosted runner. `trap cleanup EXIT` fires on every exit path,
+> including the connection-refused one, which is exactly the case the smoke
+> test exists to catch. This trap is load-bearing, not tidiness — keep it, and
+> keep it identical in `release.yml`. The shipped workflows are authoritative.
 
 - [ ] **Step 3: Verify the workflow is valid YAML**
 

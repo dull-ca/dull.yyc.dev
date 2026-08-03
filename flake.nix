@@ -81,6 +81,18 @@
             # proxy where a privileged port buys nothing.
             ExposedPorts = { "8080/tcp" = { }; };
             User = "nobody";
+            # The plaintext-only constraint is a property of the artifact,
+            # not of this repo, and whoever deploys it may never read
+            # docs/adr/0001. An OCI label travels inside the image manifest,
+            # so `docker inspect` / `skopeo inspect` surfaces it wherever the
+            # image ends up.
+            Labels = {
+              "org.opencontainers.image.description" =
+                "Serves plaintext HTTP only. nginx is built without "
+                + "ngx_http_ssl_module and CANNOT serve HTTPS -- it must sit "
+                + "behind a TLS-terminating reverse proxy and must never be "
+                + "exposed directly to the internet.";
+            };
           };
         };
       in

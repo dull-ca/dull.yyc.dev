@@ -46,6 +46,14 @@ triggers, matching ADR 0035's tag-driven release policy.
 
 - The image is available for `dulliac` to deploy to `dull01` without waiting
   for ADR 0035 §5 to resolve.
+- **The image serves plaintext HTTP only and must sit behind a TLS-terminating
+  reverse proxy.** Its nginx is built without `ngx_http_ssl_module`, so it
+  cannot serve HTTPS at all — a config with an `ssl` listener is rejected at
+  startup with `the "ssl" parameter requires ngx_http_ssl_module`. It listens
+  on `8080` as `nobody` and must never be exposed directly to the internet.
+  The same warning ships inside the image as the
+  `org.opencontainers.image.description` label, readable with
+  `docker inspect` or `skopeo inspect` without consulting this document.
 - Netlify continues to serve production; this adds a channel rather than
   cutting anything over.
 - The forge coupling ADR 0035 objects to is real here — ghcr.io is GitHub's

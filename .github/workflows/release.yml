@@ -98,6 +98,27 @@ jobs:
             echo "IS_STABLE_RELEASE=false" >> "$GITHUB_ENV"
           fi
 
+      # The runner's preinstalled container tooling ships a v1
+      # /etc/containers/registries.conf; nixpkgs' skopeo (1.24.0) only reads
+      # v2 and aborts while loading that file, before it ever reaches the
+      # registry:
+      #   fatal: get credentials: loading registries configuration
+      #   "/etc/containers/registries.conf": registries.conf must be in v2
+      #   format but is in v1
+      # -- not a credentials or permissions problem, even though that's what
+      # a failing `skopeo login` suggests. Pointing CONTAINERS_REGISTRIES_CONF
+      # at this minimal v2 file bypasses the runner's copy entirely (verified
+      # both ways: v1 reproduces the error above, v2 reaches real auth). It's
+      # exported via $GITHUB_ENV rather than a step `env:` because all three
+      # skopeo calls below -- this login and both copies -- need it, not just
+      # the next step.
+      - name: Configure container registries.conf
+        run: |
+          cat > "$RUNNER_TEMP/registries.conf" <<'EOF'
+          unqualified-search-registries = ["docker.io"]
+          EOF
+          echo "CONTAINERS_REGISTRIES_CONF=$RUNNER_TEMP/registries.conf" >> "$GITHUB_ENV"
+
       # Logging in once, with the token on stdin and the credential left in a
       # file, keeps it out of both the step script Actions writes to disk and
       # skopeo's argv. `--dest-creds "user:$TOKEN"` put it in the runner's

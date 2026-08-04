@@ -86,12 +86,20 @@
             # docs/adr/0001. An OCI label travels inside the image manifest,
             # so `docker inspect` / `skopeo inspect` surfaces it wherever the
             # image ends up.
+            #
+            # `image.source` is what GitHub uses to link the published
+            # package back to this repo -- unlinked, a package doesn't show
+            # up in the repo's sidebar and doesn't inherit its access
+            # controls. The package is kept private and pulled with a
+            # repo-scoped token, so that inheritance is what makes the token
+            # sufficient on its own.
             Labels = {
               "org.opencontainers.image.description" =
                 "Serves plaintext HTTP only. nginx is built without "
                 + "ngx_http_ssl_module and CANNOT serve HTTPS -- it must sit "
                 + "behind a TLS-terminating reverse proxy and must never be "
                 + "exposed directly to the internet.";
+              "org.opencontainers.image.source" = "https://github.com/dull-ca/dull.yyc.dev";
             };
           };
         };

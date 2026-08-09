@@ -26,10 +26,8 @@ assert_ready() {
 assert_unpublished() {
   local version=${1-} reference="docker://$published_image:${1#v}" output status=0
   local -a skopeo=(skopeo) authfile=()
-  # Fallback, not requirement: devenv.nix's packages put skopeo on PATH for a
-  # local `release`, but release.yml never does -- it reaches skopeo through
-  # `nix run nixpkgs#skopeo` on every call, so this hook needs the same
-  # fallback there.
+  # Fallback, not requirement: both callers put skopeo on PATH first
+  # (devenv.nix's packages, release.yml's step). A bare checkout has only nix.
   command -v skopeo >/dev/null 2>&1 || skopeo=(nix run nixpkgs#skopeo --)
   if [[ -n ${GHCR_AUTHFILE-} ]]; then authfile=(--authfile "$GHCR_AUTHFILE"); fi
 
@@ -40,16 +38,14 @@ assert_unpublished() {
 
   ((status != 0)) || refuse "$published_image:${version#v} is already published -- one version string names one artifact forever; release the next version instead"
 
-  # golem's assert-unpublished treats any failed inspect as unpublished
-  # (`|| return 0`) -- true for a 404, but just as true for a DNS failure or a
-  # bad authfile. This package is private, so an unauthenticated local
-  # inspect gets a 401 as the common case, not a rare one. Classify instead:
-  # only a registry answer that names an actual absence counts as
-  # unpublished; anything else refuses.
+  # Only an answer naming an actual absence counts as unpublished; anything
+  # else refuses. golem's `|| return 0` reads a 401 as absence, and this
+  # package is private, so that 401 is the common case
+  # (docs/adr/0002-the-release-process-is-a-shared-flake-input.md).
   case $output in
     *'manifest unknown'* | *'name unknown'*) return 0 ;;
   esac
-  refuse "could not establish whether $published_image:${version#v} exists; skopeo said: $output"
+  refuse "could not establish whether $published_image:${version#v} exists; skopeo said: $output -- if that reads as an authentication failure, this package is private and needs credentials: 'skopeo login ghcr.io', or GHCR_AUTHFILE pointing at an existing auth file"
 }
 
 describe() {

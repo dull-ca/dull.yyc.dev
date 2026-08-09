@@ -2,8 +2,7 @@
   description = "dull.yyc.dev static site container";
 
   nixConfig = {
-    # Repo-scoped `dull-ca` cachix cache, same wiring as the sibling repos
-    # (dull-nix, golem).
+    # Repo-scoped cachix cache, shared wiring with dull-nix and golem.
     extra-substituters = [ "https://dull-ca.cachix.org" ];
     extra-trusted-public-keys = [
       "dull-ca.cachix.org-1:dRCsbIU6rWu2X/4+BOxwvtyVOHUXXmRp7ZmEXwne9bk="
@@ -13,36 +12,55 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    # NOTE: deliberately not `inputs.nixpkgs.follows` -- letting dull-nix
-    # keep its own nixpkgs pin is the whole point of splitting it into its
-    # own repo. The nginx binary it publishes is statically linked with zero
-    # store references, so the divergent pin costs nothing in this image.
+    # NOTE: not inputs.nixpkgs.follows -- nginx is static, but overlays.default
+    # runs against *this* nixpkgs, so dull-nix's CI can't vouch for our hashes.
     dull-nix.url = "github:dull-ca/nix";
   };
 
   outputs = { self, nixpkgs, flake-utils, dull-nix }:
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ dull-nix.overlays.default ];
+        };
         nginx = dull-nix.packages.${system}.nginx-static-no-tls;
 
-        # NOTE: `dist/` is a gitignored build artifact, so a pure flake
-        # evaluation -- which only sees committed source -- can't read it.
-        # Reading `DULL_SITE_DIST` is what forces `nix build --impure`. When
-        # neither resolves, `siteDist` is null and `packages` (below) omits
-        # `container` via `optionalAttrs` instead of failing evaluation --
-        # that's what keeps a pure `nix flake check` green with no dist/.
-        siteDist =
-          let env = builtins.getEnv "DULL_SITE_DIST";
-          in
-          if env != "" then /. + env
-          else if builtins.pathExists ./dist then ./dist
-          else null;
+        # Belt-and-braces: dist/, node_modules/, .astro/ are gitignored and
+        # already absent from the git-tracked ./. tree; this guards a committed copy.
+        # NOTE: .gitignore itself must stay unfiltered -- biome (see
+        # siteCheck) reads it in the sandbox and errors outright without one.
+        siteSrc = pkgs.lib.cleanSourceWith {
+          name = "dull-yyc-dev-src";
+          src = pkgs.lib.cleanSource ./.;
+          filter = path: type:
+            let rel = pkgs.lib.removePrefix (toString ./. + "/") (toString path);
+            in !(pkgs.lib.hasPrefix "node_modules" rel
+              || pkgs.lib.hasPrefix "dist" rel
+              || pkgs.lib.hasPrefix ".astro" rel);
+        };
 
-        # bun builds the site; nix only packages the result. Astro pulls in
-        # ~137 platform-split native packages (sharp/libvips, esbuild,
-        # rollup) that `buildNpmPackage` can't reproduce -- the same split
-        # golem's flake.nix makes, for the same reason.
+        # Bump when bun.lock or the pinned bun version changes (see dull-nix's fetchBunDeps).
+        bunDepsHash = "sha256-iPP83n41DF0EHZQdsbq1F9SnSxWp5kn+48QCUu4Z2Lk=";
+
+        site = pkgs.buildBunPackage {
+          pname = "dull-yyc-dev-site";
+          src = siteSrc;
+          inherit bunDepsHash;
+        };
+
+        siteCheck = pkgs.buildBunPackage {
+          pname = "dull-yyc-dev-check";
+          src = siteSrc;
+          inherit bunDepsHash;
+          buildScript = "check";
+          installPhase = ''
+            runHook preInstall
+            touch $out
+            runHook postInstall
+          '';
+        };
+
         mkContainer = dist: pkgs.dockerTools.buildLayeredImage {
           name = "dull.yyc.dev";
           tag = "latest";
@@ -58,41 +76,25 @@
               cp ${nginx}/conf/mime.types $out/etc/nginx/mime.types
             '')
           ];
-          # NOTE: the world-writable /tmp nginx needs (for its pid and
-          # client-body temp files, running as `nobody`) can't be produced by
-          # a `chmod 1777` inside the `runCommand` above: Nix canonicalizes
-          # every store output's permissions after the build (dirs ->
-          # 0555, special bits stripped), so the chmod is silently reverted
-          # and nginx fails at startup with
-          # `mkdir() "/tmp/client_body" failed (13: Permission denied)`.
-          # `extraCommands` runs against the image layer instead of a store
-          # path, after that canonicalization, so it's the mechanism that
-          # actually sticks. Verified by hitting the failure above with the
-          # chmod in `runCommand`, then confirming the reverted `dr-xr-xr-x`
-          # mode with `stat` before moving it here.
+          # `chmod 1777` in runCommand above is reverted by nix's store
+          # canonicalization (dirs -> 0555); extraCommands runs against the
+          # image layer after that, so it's the only thing that sticks.
+          # nginx needs writable /tmp for its pid and client-body files.
           extraCommands = ''
             mkdir -p tmp
             chmod 1777 tmp
           '';
           config = {
             Entrypoint = [ "/bin/nginx" "-c" "/etc/nginx/nginx.conf" ];
-            # Unprivileged port: binding 80 as non-root needs
-            # CAP_NET_BIND_SERVICE, and the image sits behind a reverse
-            # proxy where a privileged port buys nothing.
+            # Non-root can't bind 80 without CAP_NET_BIND_SERVICE, and this
+            # sits behind a reverse proxy anyway, so a privileged port buys
+            # nothing.
             ExposedPorts = { "8080/tcp" = { }; };
             User = "nobody";
-            # The plaintext-only constraint is a property of the artifact,
-            # not of this repo, and whoever deploys it may never read
-            # docs/adr/0001. An OCI label travels inside the image manifest,
-            # so `docker inspect` / `skopeo inspect` surfaces it wherever the
-            # image ends up.
-            #
-            # `image.source` is what GitHub uses to link the published
-            # package back to this repo -- unlinked, a package doesn't show
-            # up in the repo's sidebar and doesn't inherit its access
-            # controls. The package is kept private and pulled with a
-            # repo-scoped token, so that inheritance is what makes the token
-            # sufficient on its own.
+            # Travels in the image manifest so `docker inspect`/`skopeo
+            # inspect` surface it without reading docs/adr/0001.
+            # `image.source` links the private package back to this repo on
+            # GitHub, which is what lets a repo-scoped pull token suffice.
             Labels = {
               "org.opencontainers.image.description" =
                 "Serves plaintext HTTP only. nginx is built without "
@@ -113,11 +115,10 @@
             cp ${./deploy/nginx.conf} etc/nginx/nginx.conf
             cp ${nginx}/conf/mime.types etc/nginx/mime.types
 
-            # NOTE: the nix sandbox has no /etc/nginx or /var/www/html, so
-            # paths are rewritten to sandbox-local equivalents below. This
-            # validates syntax and module availability; the real file in its
-            # real container layout is covered by a container smoke test in
-            # CI, not here.
+            # No /etc/nginx or /var/www/html in the sandbox, so paths below
+            # are rewritten to sandbox-local equivalents. Validates syntax
+            # and module availability only -- the real layout gets a
+            # container smoke test in CI.
             substituteInPlace etc/nginx/nginx.conf \
               --replace '/etc/nginx/mime.types' "$PWD/etc/nginx/mime.types" \
               --replace '/var/www/html' "$PWD/var/www/html" \
@@ -126,10 +127,13 @@
             ${nginx}/bin/nginx -t -c $PWD/etc/nginx/nginx.conf
             touch $out
           '';
+
+          site-check = siteCheck;
         };
 
-        packages = pkgs.lib.optionalAttrs (siteDist != null) {
-          container = mkContainer siteDist;
+        packages = {
+          inherit site;
+          container = mkContainer site;
         };
       });
 }

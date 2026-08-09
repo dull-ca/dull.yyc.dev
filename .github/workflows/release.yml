@@ -1,14 +1,3 @@
-# Interim per golem ADR 0035, same terms as ci.yml: GitHub Actions only until
-# the self-hosted golem-managed box exists. Publishing to ghcr.io is itself an
-# interim choice, not a resolution of ADR 0035 §5 (the release mechanism is
-# still open there) -- see docs/adr/0001-interim-ghcr-container-channel.md.
-#
-# Only a `v*` tag reaches this file, and a tag can point at ANY commit --
-# nothing constrains it to one ci.yml already passed. So this workflow cannot
-# borrow ci.yml's verdict and re-runs the full gate itself: `bun run check`,
-# `nix flake check`, and the same container smoke test, all before the first
-# skopeo copy. Without that, tagging an unverified commit would publish a
-# broken image straight to `:latest`.
 name: Release
 
 on:
@@ -18,17 +7,11 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # packages: write is what lets GITHUB_TOKEN authenticate the skopeo push
-    # below; contents: read is actions/checkout's default requirement.
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
 
       - uses: cachix/install-nix-action@v31
       - uses: cachix/cachix-action@v15
@@ -36,23 +19,12 @@ jobs:
           name: dull-ca
           authToken: ${{ secrets.DULL_CA_CACHIX_PRIVATE_KEY }}
 
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run build
-
+      # A v* tag can point at any commit, so this can't borrow ci.yml's
+      # verdict -- it re-runs the full gate before the first skopeo copy.
       - run: nix flake check --print-build-logs
 
-      # Same build ci.yml runs; see the comment there for why bun builds the
-      # site and nix only packages it. `result` is nix's docker-archive
-      # output, the input the skopeo copies below read from.
-      - name: Build container image
-        run: DULL_SITE_DIST=$PWD/dist nix build --impure .#container --print-build-logs
+      - run: nix build .#container --print-build-logs
 
-      # Byte-for-byte the smoke test in ci.yml, and it must stay that way --
-      # this is the last gate before the image is public. `nix flake check`
-      # only validates the nginx config in a sandbox with no docker daemon;
-      # this is the only step that runs the real artifact.
-      #
       # The `trap cleanup EXIT` is load-bearing, not tidiness: with no `shell:`
       # key GitHub Actions runs this under `bash -e {0}`, so an unreachable
       # container still aborts the script at the first failing command, and
@@ -82,13 +54,6 @@ jobs:
           test "$missing" = 404 || { echo "FAIL 404: $missing"; exit 1; }
           echo "smoke test passed"
 
-      # NOTE: the git tag is the sole source of the version. package.json's
-      # version field is never read, and stays at its placeholder value.
-      #
-      # IS_STABLE_RELEASE gates the `:latest` move below. Only a plain
-      # `vMAJOR.MINOR.PATCH` tag qualifies; `v1.2.3-rc1` and anything else
-      # matching the `v*` trigger publishes under its own version tag but
-      # must not become what an unpinned `docker pull` gets.
       - name: Derive version from tag
         run: |
           echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
@@ -119,11 +84,7 @@ jobs:
           EOF
           echo "CONTAINERS_REGISTRIES_CONF=$RUNNER_TEMP/registries.conf" >> "$GITHUB_ENV"
 
-      # Logging in once, with the token on stdin and the credential left in a
-      # file, keeps it out of both the step script Actions writes to disk and
-      # skopeo's argv. `--dest-creds "user:$TOKEN"` put it in the runner's
-      # process table on every copy. `printf` is a bash builtin, so the token
-      # never becomes a separate process's arguments either.
+      # stdin, not --dest-creds "user:$TOKEN": that would put the token in the runner's process table on every copy.
       - name: Authenticate to ghcr.io
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -134,12 +95,6 @@ jobs:
             --authfile "$RUNNER_TEMP/ghcr-auth.json" \
             ghcr.io
 
-      # skopeo reads nix's docker-archive output directly -- no docker daemon,
-      # no decompression of the gzipped archive. Everything upstream of
-      # `docker-archive:result` is unaware ghcr.io exists, so retargeting to a
-      # different registry later is a change to these destination arguments,
-      # not a rewrite. Two copies because the version tag and `latest` are
-      # independent refs in the registry; skopeo has no "push and also tag".
       - name: Publish the versioned image to ghcr.io
         run: |
           nix run nixpkgs#skopeo -- copy \

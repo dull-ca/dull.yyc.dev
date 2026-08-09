@@ -105,8 +105,14 @@
             };
           };
         };
+
+        container = mkContainer site;
       in
       {
+        # container joins the gate, so one `nix flake check` covers everything
+        # a release publishes and warm-cache needs no special case. It stays in
+        # packages too: ci.yml/release.yml `nix build .#container` for the
+        # docker smoke test hits this same derivation -- a cache hit, not a rebuild.
         checks = {
           # NOTE: fails the build gate on a broken server block instead of
           # letting it crash-loop in production.
@@ -129,11 +135,11 @@
           '';
 
           site-check = siteCheck;
+          inherit container;
         };
 
         packages = {
-          inherit site;
-          container = mkContainer site;
+          inherit site container;
         };
       });
 }

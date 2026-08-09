@@ -28,6 +28,8 @@
 
         # Filtered so touching dist/ or node_modules/ -- both gitignored,
         # not real inputs -- doesn't invalidate this derivation.
+        # NOTE: .gitignore itself must stay unfiltered -- biome (see
+        # siteCheck) reads it in the sandbox and errors outright without one.
         siteSrc = pkgs.lib.cleanSourceWith {
           name = "dull-yyc-dev-src";
           src = pkgs.lib.cleanSource ./.;
@@ -45,6 +47,18 @@
           pname = "dull-yyc-dev-site";
           src = siteSrc;
           inherit bunDepsHash;
+        };
+
+        siteCheck = pkgs.buildBunPackage {
+          pname = "dull-yyc-dev-check";
+          src = siteSrc;
+          inherit bunDepsHash;
+          buildScript = "check";
+          installPhase = ''
+            runHook preInstall
+            touch $out
+            runHook postInstall
+          '';
         };
 
         mkContainer = dist: pkgs.dockerTools.buildLayeredImage {
@@ -113,6 +127,8 @@
             ${nginx}/bin/nginx -t -c $PWD/etc/nginx/nginx.conf
             touch $out
           '';
+
+          site-check = siteCheck;
         };
 
         packages = {

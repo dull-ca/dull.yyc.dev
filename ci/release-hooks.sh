@@ -26,8 +26,10 @@ assert_ready() {
 assert_unpublished() {
   local version=${1-} reference="docker://$published_image:${1#v}" output status=0
   local -a skopeo=(skopeo) authfile=()
-  # Fallback, not requirement: skopeo is on no PATH today -- not devenv.nix's
-  # (biome, cachix, gh), not a bare checkout's -- so nix run is what reaches it.
+  # Fallback, not requirement: devenv.nix's packages put skopeo on PATH for a
+  # local `release`, but release.yml never does -- it reaches skopeo through
+  # `nix run nixpkgs#skopeo` on every call, so this hook needs the same
+  # fallback there.
   command -v skopeo >/dev/null 2>&1 || skopeo=(nix run nixpkgs#skopeo --)
   if [[ -n ${GHCR_AUTHFILE-} ]]; then authfile=(--authfile "$GHCR_AUTHFILE"); fi
 

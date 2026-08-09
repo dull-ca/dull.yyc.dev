@@ -18,9 +18,14 @@
   packages = with pkgs; [
     biome
     # `cachix.enable` above configures the cache but ships no binary, and
-    # `warm-cache` needs one. `gh` is what `release` waits on.
+    # `warm-cache` needs one. `gh` is what `release` waits on; `git-cliff`
+    # writes the changelog; `skopeo` is what release-hooks.sh asks ghcr.io
+    # through. mkReleaseCommand's wrapper puts only release-guards on PATH,
+    # not any of these.
     cachix
     gh
+    git-cliff
+    skopeo
   ];
 
   # The gate CI runs — the same `nix flake check` over the same `checks`
@@ -84,4 +89,10 @@
 
     echo "warm-cache: gate passed, every output is in dull-ca — CI has nothing left to build."
   '';
+
+  # Goes through `nix run` rather than a bare `exec release`: devenv resolves
+  # its own scripts before anything else on PATH, and the flake output this
+  # calls is itself named `release` -- a bare `exec release` would call this
+  # very script again.
+  scripts.release.exec = ''cd "$DEVENV_ROOT" && exec nix run "$DEVENV_ROOT#release" -- "$@"'';
 }

@@ -8,7 +8,8 @@ The site is a nix derivation — `dull-nix`'s `buildBunPackage` runs the Astro
 build inside the sandbox, so nothing is built on the CI runner:
 
 ```sh
-nix flake check          # astro check, biome, nginx config
+nix flake check          # astro check, biome, nginx config, the container
+                         # image, and the release guards and hooks
 nix build .#site         # the built dist/
 nix build .#container    # the docker archive
 ```

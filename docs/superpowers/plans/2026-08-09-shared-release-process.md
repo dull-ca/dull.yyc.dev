@@ -1,5 +1,12 @@
 # Shared Release Process Implementation Plan
 
+> The plan as written, kept as the record of what was planned. Nothing below
+> describes the shipped code — the sketches, the attribute names and the
+> verification steps all drifted from it. What shipped is `flake.nix`,
+> `ci/release-hooks.sh`, `devenv.nix` and `.github/workflows/release.yml`; why
+> it shipped that way is
+> `docs/adr/0002-the-release-process-is-a-shared-flake-input.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace this repo's would-be bespoke release machinery with `dull-nix`'s `mkReleaseCommand`, supplying only the repo-specific hooks — and fix the fail-open registry guard inherited from golem.

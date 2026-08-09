@@ -51,7 +51,7 @@ run from a clean `main` that is not behind `origin/main`; the changelog is
 script supplying one subcommand supplies all four. How the version is read, and
 everything else, is dull-nix's README under `mkReleaseCommand`.
 
-**`ci/release-hooks.sh` is this repository's entire half** — 92 lines against
+**`ci/release-hooks.sh` is this repository's entire half** — 88 lines against
 the abandoned branch's 283.
 
 **`set-version` prints nothing, so a release commit carries `CHANGELOG.md`
@@ -66,9 +66,8 @@ repository's ghcr package is private, which makes an unauthenticated inspect's
 401 the common case rather than the rare one. This hook admits only `manifest
 unknown` and `name unknown` as evidence of absence; every other failure refuses
 and prints what the registry said.
-`checks.release-hooks-classify-registry-errors` drives the built hook against a
-stub skopeo — the only way to exercise the classification without a network
-call.
+`checks.release-hooks-hold` drives the built hook against a stub skopeo — the
+only way to exercise the classification without a network call.
 
 **`release.yml` keeps `on: push: tags` and re-checks what it still can**,
 because a hand-pushed tag reaches it having bypassed `release` entirely.

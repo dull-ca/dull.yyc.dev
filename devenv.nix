@@ -18,10 +18,9 @@
   packages = with pkgs; [
     biome
     # `cachix.enable` above configures the cache but ships no binary, and
-    # `warm-cache` needs one. `gh` is what `release` waits on; `git-cliff`
-    # writes the changelog; `skopeo` is what release-hooks.sh asks ghcr.io
-    # through. mkReleaseCommand's wrapper puts only release-guards on PATH,
-    # not any of these.
+    # mkReleaseCommand's wrapper puts only release-guards on PATH: cachix, gh
+    # and git-cliff arrive from nowhere else. skopeo is the exception -- it
+    # spares release-hooks.sh its `nix run nixpkgs#skopeo` fallback.
     cachix
     gh
     git-cliff
@@ -29,8 +28,9 @@
   ];
 
   # The gate CI runs — the same `nix flake check` over the same `checks`
-  # attrset — with every gate output pushed to cachix, so the CI run has
-  # nothing left to build.
+  # attrset — with every gate output pushed to cachix, so the CI run finds them
+  # already built. `checks` outputs only: `release.yml` also builds
+  # `.#release-guards` and nixpkgs' skopeo, and neither is one of those.
   #
   # NOTE: `cachix push` reports a rejected push with a red ✗ and still exits 0,
   # hence the check below that the outputs really landed. Nix caches a "not in
@@ -87,7 +87,7 @@
       exit 1
     fi
 
-    echo "warm-cache: gate passed, every output is in dull-ca — CI has nothing left to build."
+    echo "warm-cache: gate passed, every output is in dull-ca — the gate runs on CI as cache hits."
   '';
 
   # Goes through `nix run` rather than a bare `exec release`: devenv resolves

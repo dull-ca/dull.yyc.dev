@@ -895,4 +895,4 @@ git commit
 
 ## Follow-up for Dr. Dub (not part of this plan)
 
-The `dull-nix` changes are unpushed, so `dull.yyc.dev`'s `flake.lock` still points at a `github:dull-ca/nix` revision that has no `overlays.default`. Everything in Tasks 4-6 is verified with `--override-input`. **`dull.yyc.dev` CI will fail until `dull-nix` is pushed and `nix flake update dull-nix` is run and committed.** That bump is deliberately left out of this branch: committing a lock that points at an unpushed revision, or at a local `path:`, would be worse than leaving it obviously undone.
+The `flake.lock` bump landed in `24b248d`.

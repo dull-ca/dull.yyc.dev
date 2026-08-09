@@ -12,8 +12,8 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    # NOTE: not inputs.nixpkgs.follows -- the divergent pin is the point of
-    # splitting dull-nix out, and costs nothing since its nginx is static.
+    # NOTE: not inputs.nixpkgs.follows -- nginx is static, but overlays.default
+    # runs against *this* nixpkgs, so dull-nix's CI can't vouch for our hashes.
     dull-nix.url = "github:dull-ca/nix";
   };
 
@@ -26,8 +26,8 @@
         };
         nginx = dull-nix.packages.${system}.nginx-static-no-tls;
 
-        # Filtered so touching dist/ or node_modules/ -- both gitignored,
-        # not real inputs -- doesn't invalidate this derivation.
+        # Belt-and-braces: dist/, node_modules/, .astro/ are gitignored and
+        # already absent from the git-tracked ./. tree; this guards a committed copy.
         # NOTE: .gitignore itself must stay unfiltered -- biome (see
         # siteCheck) reads it in the sandbox and errors outright without one.
         siteSrc = pkgs.lib.cleanSourceWith {
@@ -40,7 +40,7 @@
               || pkgs.lib.hasPrefix ".astro" rel);
         };
 
-        # Bump when bun.lock changes (see dull-nix's fetchBunDeps).
+        # Bump when bun.lock or the pinned bun version changes (see dull-nix's fetchBunDeps).
         bunDepsHash = "sha256-iPP83n41DF0EHZQdsbq1F9SnSxWp5kn+48QCUu4Z2Lk=";
 
         site = pkgs.buildBunPackage {

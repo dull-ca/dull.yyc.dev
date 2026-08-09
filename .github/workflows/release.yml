@@ -19,6 +19,8 @@ jobs:
           name: dull-ca
           authToken: ${{ secrets.DULL_CA_CACHIX_PRIVATE_KEY }}
 
+      # A v* tag can point at any commit, so this can't borrow ci.yml's
+      # verdict -- it re-runs the full gate before the first skopeo copy.
       - run: nix flake check --print-build-logs
 
       - run: nix build .#container --print-build-logs
@@ -82,6 +84,7 @@ jobs:
           EOF
           echo "CONTAINERS_REGISTRIES_CONF=$RUNNER_TEMP/registries.conf" >> "$GITHUB_ENV"
 
+      # stdin, not --dest-creds "user:$TOKEN": that would put the token in the runner's process table on every copy.
       - name: Authenticate to ghcr.io
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}

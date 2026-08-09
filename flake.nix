@@ -107,6 +107,18 @@
         };
 
         container = mkContainer site;
+
+        # The version, changelog and guards come from dull-nix's
+        # mkReleaseCommand; ci/release-hooks.sh is this repo's half -- what a
+        # release publishes and how it checks that. repositoryUrl (not
+        # cliffConfig) is enough: there's no CHANGELOG.md yet for the bundled
+        # cliff.toml's section mapping to misfile.
+        release = pkgs.mkReleaseCommand {
+          hooks = ./ci/release-hooks.sh;
+          repositoryUrl = "https://github.com/dull-ca/dull.yyc.dev";
+          warmCommand = "warm-cache";
+          releaseWorkflow = "release.yml";
+        };
       in
       {
         # container joins the gate, so one `nix flake check` covers everything
@@ -136,10 +148,55 @@
 
           site-check = siteCheck;
           inherit container;
+
+          # The guards decide what may be released, held to the dull-nix
+          # revision this flake pins -- not whatever dull-nix's own gate last
+          # saw.
+          release-guards-hold = pkgs.releaseGuardsTest;
+
+          # Drives the built release-hooks against a stub skopeo -- the only
+          # way to exercise the 401-vs-404 classification
+          # (ci/release-hooks.sh) without a network call.
+          release-hooks-classify-registry-errors =
+            pkgs.runCommand "release-hooks-classify-registry-errors" { } ''
+              mkdir -p bin
+              cat >bin/skopeo <<'STUB'
+              #!/bin/sh
+              printf '%s\n' "$SKOPEO_STDERR" >&2
+              exit "$SKOPEO_STATUS"
+              STUB
+              chmod +x bin/skopeo
+              export PATH=$PWD/bin:$PATH
+
+              hooks=${release}/bin/release-hooks
+
+              SKOPEO_STATUS=1 SKOPEO_STDERR='manifest unknown' \
+                $hooks assert-unpublished v1.2.3 \
+                || { echo "a missing manifest must read as unpublished"; exit 1; }
+
+              SKOPEO_STATUS=1 SKOPEO_STDERR='name unknown' \
+                $hooks assert-unpublished v1.2.3 \
+                || { echo "a missing repository must read as unpublished"; exit 1; }
+
+              if SKOPEO_STATUS=1 SKOPEO_STDERR='unauthorized: authentication required' \
+                $hooks assert-unpublished v1.2.3 2>/dev/null; then
+                echo "a 401 must refuse, not pass as unpublished"; exit 1
+              fi
+
+              if SKOPEO_STATUS=0 SKOPEO_STDERR=none \
+                $hooks assert-unpublished v1.2.3 2>/dev/null; then
+                echo "an existing tag must refuse"; exit 1
+              fi
+
+              touch $out
+            '';
         };
 
         packages = {
-          inherit site container;
+          inherit site container release;
+          # bin/release-guards, for a CI job re-checking a tag pushed by hand
+          # without going through `release` itself.
+          release-guards = pkgs.releaseGuards;
         };
       });
 }

@@ -105,8 +105,26 @@
             };
           };
         };
+
+        container = mkContainer site;
+
+        # The version, changelog and guards come from dull-nix's
+        # mkReleaseCommand; ci/release-hooks.sh is this repo's half -- what a
+        # release publishes and how it checks that. repositoryUrl (not
+        # cliffConfig) is enough: there's no CHANGELOG.md yet for the bundled
+        # cliff.toml's section mapping to misfile.
+        release = pkgs.mkReleaseCommand {
+          hooks = ./ci/release-hooks.sh;
+          repositoryUrl = "https://github.com/dull-ca/dull.yyc.dev";
+          warmCommand = "warm-cache";
+          releaseWorkflow = "release.yml";
+        };
       in
       {
+        # container joins the gate, so one `nix flake check` covers everything
+        # a release publishes and warm-cache needs no special case. It stays in
+        # packages too: ci.yml/release.yml `nix build .#container` for the
+        # docker smoke test hits this same derivation -- a cache hit, not a rebuild.
         checks = {
           # NOTE: fails the build gate on a broken server block instead of
           # letting it crash-loop in production.
@@ -129,11 +147,80 @@
           '';
 
           site-check = siteCheck;
+          inherit container;
+
+          # The guards decide what may be released, held to the dull-nix
+          # revision this flake pins -- not whatever dull-nix's own gate last
+          # saw.
+          release-guards-hold = pkgs.releaseGuardsTest;
+
+          # Drives the built release-hooks (ci/release-hooks.sh) against a stub
+          # skopeo, which is the only way to exercise the 401-vs-404
+          # classification without a network call. The arms around it pin the
+          # rest of the hook contract: assert-ready's PATH requirements,
+          # describe's two lines and their column width, set-version's silence,
+          # and exit 2 for an unknown subcommand.
+          release-hooks-hold =
+            pkgs.runCommand "release-hooks-hold" { } ''
+              mkdir -p bin
+              cat >bin/skopeo <<'STUB'
+              #!/bin/sh
+              printf '%s\n' "$SKOPEO_STDERR" >&2
+              exit "$SKOPEO_STATUS"
+              STUB
+              chmod +x bin/skopeo
+              export PATH=$PWD/bin:${pkgs.releaseGuards}/bin:$PATH
+
+              hooks=${release}/bin/release-hooks
+
+              $hooks assert-ready \
+                || { echo "assert-ready must pass with skopeo and release-guards on PATH"; exit 1; }
+
+              SKOPEO_STATUS=1 SKOPEO_STDERR='manifest unknown' \
+                $hooks assert-unpublished v1.2.3 \
+                || { echo "a missing manifest must read as unpublished"; exit 1; }
+
+              SKOPEO_STATUS=1 SKOPEO_STDERR='name unknown' \
+                $hooks assert-unpublished v1.2.3 \
+                || { echo "a missing repository must read as unpublished"; exit 1; }
+
+              if SKOPEO_STATUS=1 SKOPEO_STDERR='unauthorized: authentication required' \
+                $hooks assert-unpublished v1.2.3 2>/dev/null; then
+                echo "a 401 must refuse, not pass as unpublished"; exit 1
+              fi
+
+              if SKOPEO_STATUS=0 SKOPEO_STDERR=none \
+                $hooks assert-unpublished v1.2.3 2>/dev/null; then
+                echo "an existing tag must refuse"; exit 1
+              fi
+
+              described=$($hooks describe v1.2.3)
+              printf '%s\n' "$described" | grep -Fqx 'image     ghcr.io/dull-ca/dull.yyc.dev:1.2.3' \
+                || { echo "describe must name the image and tag a release publishes"; exit 1; }
+              printf '%s\n' "$described" | grep -Fqx ':latest   moves to v1.2.3' \
+                || { echo "describe must say :latest moves for a stable version"; exit 1; }
+
+              prereleased=$($hooks describe v1.2.3-rc1)
+              printf '%s\n' "$prereleased" | grep -Fqx ':latest   unchanged -- v1.2.3-rc1 is a prerelease' \
+                || { echo "describe must leave :latest where it is for a prerelease"; exit 1; }
+
+              [ "$($hooks set-version v1.2.3 2>&1 | wc -c)" -eq 0 ] \
+                || { echo "set-version must write nothing -- the release commit carries CHANGELOG.md alone"; exit 1; }
+
+              usage_status=0
+              $hooks not-a-hook >/dev/null 2>&1 || usage_status=$?
+              [ "$usage_status" -eq 2 ] \
+                || { echo "an unknown hook must exit 2, not $usage_status"; exit 1; }
+
+              touch $out
+            '';
         };
 
         packages = {
-          inherit site;
-          container = mkContainer site;
+          inherit site container release;
+          # bin/release-guards, for a CI job re-checking a tag pushed by hand
+          # without going through `release` itself.
+          release-guards = pkgs.releaseGuards;
         };
       });
 }

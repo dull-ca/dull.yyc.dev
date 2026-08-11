@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 {
   description = "dull.yyc.dev static site container";
 

@@ -36,6 +36,29 @@ cannot read as absence, so `skopeo login ghcr.io` may be needed as well.
 process lives in `dull-ca/nix`; that repository's README, under
 `mkReleaseCommand`, for the rest of it.
 
+## Licence
+
+Copyright © 2026 Department of Unnecessary Labour LLC.
+
+The repository is licensed in two halves, because software copyleft and content
+copyleft are not the same instrument.
+
+The **code** — everything under `src/`, `ci/`, `deploy/`, plus `flake.nix`,
+`devenv.nix`, and the build and tooling configuration — is
+[GNU AGPL-3.0-or-later](LICENSE). The site is served by a container we build
+here, so a fork that deploys a modified stack owes its users that stack's
+source, not only the JavaScript their browser already receives.
+
+The **content** — the prose, the imagery, and `src/assets/` — is
+[CC BY-SA 4.0](LICENSE-CONTENT). CC BY-SA is one-way compatible with GPLv3, so
+the two halves can mix in that direction if they ever need to.
+
+Third-party assets keep their own licences; see Credits below.
+
+Neither licence grants any right to the "Department of Unnecessary Labour"
+name, the DULL abbreviation, or the marks and logos. Those are reserved.
+Copyright licences do not convey trademarks, and a fork must wear its own name.
+
 ## Credits
 
 The favicon is ["Double Face Mask"][icon] by **Lorc**, licensed under

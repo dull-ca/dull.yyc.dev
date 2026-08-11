@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # dull.yyc.dev's half of the release: the version, changelog, guards, and tag
 # come from dull-nix's mkReleaseCommand (dull-ca/nix README, "mkReleaseCommand").

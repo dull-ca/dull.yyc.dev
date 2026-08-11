@@ -4,6 +4,12 @@ Rendered by [git-cliff](https://git-cliff.org) from the conventional commits
 behind each tag. `release` rewrites this file in full on every release, so an
 edit made here is lost — edit the commit messages instead.
 
+## v0.2.1 — 2026-08-11
+
+### Tooling
+
+- **licence**: AGPL the code, CC BY-SA the content ([#4](https://github.com/dull-ca/dull.yyc.dev/pull/4)) ([54df9fd](https://github.com/dull-ca/dull.yyc.dev/commit/54df9fd66f03ddc598a4591f9050846ae1b7a518))
+
 ## v0.2.0 — 2026-08-10
 
 ### Features
